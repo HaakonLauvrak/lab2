@@ -29,9 +29,10 @@ typedef struct scheduler_impl
 
 // Register all available schedulers here
 // also update schedc, this indicates how long the SchedImpl array is
-#define SCHEDC 1
+#define SCHEDC 2
 static SchedImpl available_schedulers[SCHEDC] = {
-    {"Round Robin", &rr_scheduler, 1}};
+    {"Round Robin", &rr_scheduler, 1},
+    {"MLFQ scheduler", &mlfq_scheduler, 2}};
 
 void (*sched_pointer)(void) = &rr_scheduler;
 
@@ -579,6 +580,285 @@ void rr_scheduler(void)
     }
     // In case a setsched happened, we will switch to the new scheduler after one
     // Round Robin round has completed.
+}
+
+// The multi-level feedback queue scheduler
+// void mlfq_scheduler(void)
+// {
+//     struct proc *p0;
+//     struct proc *p1;
+//     struct proc *p2;
+//     struct proc *p3;
+//     struct cpu *c = mycpu();
+
+//     c->proc = 0;
+//     // Avoid deadlock by ensuring that devices can interrupt.
+//     intr_on();
+
+//     for (p0 = proc; p0 < &proc[NPROC]; p0++)
+//     {
+//         acquire(&p0->lock);
+//         if ((p0->state == RUNNABLE) && (p0->priority == 0))
+//         {
+//             // Switch to chosen process.  It is the process's job
+//             // to release its lock and then reacquire it
+//             // before jumping back to us.
+//             p0->state = RUNNING;
+//             c->proc = p0;
+//             swtch(&c->context, &p0->context);
+
+//             // Process is done running for now.
+//             // It should have changed its p->state before coming back.
+//             c->proc = 0;
+//             p0->tics += 4;
+//             if (p0->priority < 2)
+//             {
+//                 p0->priority += 1;
+//             }
+//         }
+//         release(&p0->lock);
+//         int n0 = 0;
+//         for (p1 = proc; p1 < &proc[NPROC]; p1++)
+//         {
+//             if ((p1->priority == 0) && (p1->state != 0))
+//             {
+//                 n0 += 1;
+//                 break;
+//             }
+//         }
+//         for (p1 = proc; p1 < &proc[NPROC]; p1++)
+//         {
+//             acquire(&p1->lock);
+
+//             if (p1->priority == 0)
+//             {
+//                 release(&p1->lock);
+//                 break;
+//             }
+//             if ((p1->state == RUNNABLE) && (p1->priority == 1))
+//             {
+//                 // Switch to chosen process.  It is the process's job
+//                 // to release its lock and then reacquire it
+//                 // before jumping back to us.
+//                 p1->state = RUNNING;
+//                 c->proc = p1;
+//                 swtch(&c->context, &p1->context);
+
+//                 // Process is done running for now.
+//                 // It should have changed its p->state before coming back.
+//                 c->proc = 0;
+//                 p1->tics += 4;
+//                 if (p1->priority == 1)
+//                 {
+//                     p1->priority += 1;
+//                 }
+//                 int n0 = 0;
+//                 int n1 = 0;
+//                 for (p2 = proc; p2 < &proc[NPROC]; p2++)
+//                 {
+//                     if (p2->priority == 0)
+//                     {
+//                         n0 += 1;
+//                     }
+//                     else if (p2->priority == 1)
+//                     {
+//                         n1 += 1;
+//                     }
+//                 }
+//                 if ((n0 == 0) && (n1 == 0))
+//                 {
+//                     release(&p1->lock);
+//                     for (p2 = proc; p2 < &proc[NPROC]; p2++)
+//                     {
+//                         acquire(&p2->lock);
+//                         if (p2->priority < 2)
+//                         {
+//                             release(&p2->lock);
+//                             break;
+//                         }
+//                         if ((p2->state == RUNNABLE) && (p2->priority == 3))
+//                         {
+//                             // Switch to chosen process.  It is the process's job
+//                             // to release its lock and then reacquire it
+//                             // before jumping back to us.
+//                             p2->state = RUNNING;
+//                             c->proc = p2;
+//                             swtch(&c->context, &p2->context);
+
+//                             // Process is done running for now.
+//                             // It should have changed its p->state before coming back.
+//                             c->proc = 0;
+//                             p2->tics += 4;
+//                             for (p3 = proc; p3 < &proc[NPROC]; p3++)
+//                             {
+//                                 if ((p3->priority == 2) && (p3->tics == 16))
+//                                 {
+//                                     p3->priority = 0;
+//                                     p3->tics = 0;
+//                                     printf("Moved p to top of q");
+//                                 }
+//                             }
+//                             for (p3 = proc; p3 < &proc[NPROC]; p3++)
+//                             {
+//                                 if (p3->priority == 0)
+//                                 {
+//                                     n0 += 1;
+//                                 }
+//                                 else if (p3->priority == 1)
+//                                 {
+//                                     n1 += 1;
+//                                 }
+//                             }
+//                             if ((n0 == 0) && (n1 == 0))
+//                             {
+//                                 continue;
+//                             }
+//                             else
+//                             {
+//                                 break;
+//                             }
+//                         }
+//                         release(&p2->lock);
+//                     }
+//                 }
+//             }
+//             release(&p1->lock);
+//         }
+//     }
+// }
+
+struct queue
+{
+    struct proc *head; // Head of the queue (oldest process)
+    struct proc *tail; // Tail of the queue (newest process)
+};
+
+// Add a process to the end of the queue
+void enqueue(struct queue *q, struct proc *p)
+{
+    if (q->tail != 0)
+    {
+        q->tail->next = p;
+        p->prev = q->tail;
+        p->next = 0;
+        q->tail = p;
+    }
+    else
+    {
+        q->head = p;
+        q->tail = p;
+        p->prev = 0;
+        p->next = 0;
+    }
+}
+
+// Remove a process from the front of the queue
+struct proc *dequeue(struct queue *q)
+{
+    struct proc *p = q->head;
+    if (p != 0)
+    {
+        q->head = p->next;
+        if (q->head != 0)
+        {
+            q->head->prev = 0;
+        }
+        else
+        {
+            q->tail = 0;
+        }
+        p->prev = 0;
+        p->next = 0;
+    }
+    return p;
+}
+
+void mlfq_scheduler(void)
+{
+    struct proc *p, *p1;
+    // Initialize the queues
+    struct queue *q0 = {0}; // First queue (higher priority)
+    struct queue *q1 = {0}; // Second queue (lower priority)
+    struct queue *q2 = {0}; // Third queue (lowest priority)
+    q0->head = 0;
+    q0->tail = 0;
+    q1->head = 0;
+    q1->tail = 0;
+    q2->head = 0;
+    q2->tail = 0;
+    struct cpu *c = mycpu();
+    c->proc = 0;
+
+    for (p = proc; p < &proc[NPROC]; p++)
+    {
+        printf("Test1");
+        enqueue(q0, p);
+        printf("Test2");
+    }
+
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
+
+    while (q0->head != 0)
+    {
+        p1 = dequeue(q0);
+        acquire(&p1->lock);
+        enqueue(q1, p1);
+        if (p1->state == RUNNABLE)
+        {
+            // Switch to chosen process.  It is the process's job
+            // to release its lock and then reacquire it
+            // before jumping back to us.
+            p1->state = RUNNING;
+            c->proc = p1;
+            swtch(&c->context, &p1->context);
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            c->proc = 0;
+        }
+        release(&p1->lock);
+    }
+    while ((q0->head == 0) && (q1->head != 0))
+    {
+        p1 = dequeue(q1);
+        acquire(&p1->lock);
+        enqueue(q2, p1);
+        if (p1->state == RUNNABLE)
+        {
+            // Switch to chosen process.  It is the process's job
+            // to release its lock and then reacquire it
+            // before jumping back to us.
+            p1->state = RUNNING;
+            c->proc = p1;
+            swtch(&c->context, &p1->context);
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            c->proc = 0;
+        }
+        release(&p1->lock);
+    }
+    while ((q0->head == 0) && (q1->head == 0) && (q2->head != 0))
+    {
+        p1 = dequeue(q2);
+        acquire(&p1->lock);
+        enqueue(q2, p1);
+        if (p1->state == RUNNABLE)
+        {
+            // Switch to chosen process.  It is the process's job
+            // to release its lock and then reacquire it
+            // before jumping back to us.
+            p1->state = RUNNING;
+            c->proc = p1;
+            swtch(&c->context, &p1->context);
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            c->proc = 0;
+        }
+        release(&p1->lock);
+    }
 }
 
 // Switch to scheduler.  Must hold only p->lock
